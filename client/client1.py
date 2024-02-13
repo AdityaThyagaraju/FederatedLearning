@@ -20,6 +20,10 @@ class ClientApp(kivy.app.App):
 
     def __init__(self):
         super().__init__()
+        if os.path.exists('mymodel.hdf5'):
+            self.model_exists = True
+        else:
+            self.model_exists = False
 
     def create_socket(self, *args):
         self.soc = socket.socket(
@@ -39,7 +43,6 @@ class ClientApp(kivy.app.App):
 
             self.connect_btn.disabled = True
             self.recv_train_model_btn.disabled = False
-            self.detect_btn.disabled = False
 
         except BaseException as e:
             self.label.text = "Error Connecting to the Server"
@@ -47,7 +50,6 @@ class ClientApp(kivy.app.App):
 
             self.connect_btn.disabled = False
             self.recv_train_model_btn.disabled = True
-            self.detect_btn.disabled = True
 
     def recv_train_model(self, *args):
         self.recv_train_model_btn.disabled = True
@@ -57,6 +59,7 @@ class ClientApp(kivy.app.App):
             recv_timeout = 10
         )
         recvThread.start()
+        self.detect_btn.disabled = False
         
     def detect(self, *args):
         self.detect_btn.disabled = True
@@ -66,6 +69,7 @@ class ClientApp(kivy.app.App):
             recv_timeout = 10
         )
         detectThread.start()
+        self.detect_btn.disabled = False
 
     def close_socket(self, *args):
         self.soc.close()
@@ -106,10 +110,14 @@ class ClientApp(kivy.app.App):
         self.recv_train_model_btn.bind(on_press = self.recv_train_model)
         
         self.detect_btn = kivy.uix.button.Button(
-            text = "Detect Oral Cancer", 
-            disabled = True
+            text = "Detect Oral Cancer"
         )
         self.detect_btn.bind(on_press = self.detect)
+        
+        if self.model_exists:
+            self.detect_btn.disabled = False
+        else:
+            self.detect_btn.disabled = True
 
         self.close_socket_btn = kivy.uix.button.Button(
             text = "Close Socket", 
