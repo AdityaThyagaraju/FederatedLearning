@@ -63,11 +63,7 @@ class ClientApp(kivy.app.App):
         
     def detect(self, *args):
         self.detect_btn.disabled = True
-        detectThread = DetectThread(
-            kivy_app = self, 
-            buffer_size = 1024, 
-            recv_timeout = 10
-        )
+        detectThread = DetectThread()
         detectThread.start()
         self.detect_btn.disabled = False
 
