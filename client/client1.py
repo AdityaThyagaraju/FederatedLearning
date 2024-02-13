@@ -246,6 +246,7 @@ class RecvThread(threading.Thread):
             if subject == "model":
                 if model:
                     model.save('mymodel.hdf5')
+                    break
                 else:
                     test_datagen = received_data['test_datagen']
                     train_datagen = received_data['train_datagen']
@@ -298,10 +299,7 @@ class RecvThread(threading.Thread):
                 file_path = 'mymodel.hdf5'
                 if os.path.exists(file_path):
                     os.remove(file_path)
-                        
-            # elif subject == "done":
-            #     self.kivy_app.label.text = "Model is Trained"
-            #     break
+            
             else:
                 self.kivy_app.label.text = "Unrecognized Message Type: {subject}".format(
                     subject=subject)
