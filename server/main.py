@@ -36,7 +36,7 @@ class App:
     def updateWeights(self,newWeights):
         self.baseModel.set_weights(newWeights)
     
-    def averaging(self,clientModel):
+    def federatedAverage(self,clientModel):
         averaged_weights = []
         server_layer_weights = self.model.get_weights()
         client_layer_weights = clientModel.get_weights()
@@ -82,6 +82,8 @@ class AppInterface(threading.Thread):
             }
             self.reply(message)
         elif req["subject"]=="model":
+            model = req["data"]
+            self.app.federatedAverage(model)
             message = {
                 "subject":"model",
                 "data":self.app.getInstance()
@@ -102,7 +104,7 @@ class AppInterface(threading.Thread):
             
     def run(self):
         request = b""
-        recv_start_time = time.time()
+        recv_start_time = None
         while True:
             try:
                 data = self.connection.recv(self.bufferSize)
@@ -115,8 +117,9 @@ class AppInterface(threading.Thread):
                         if time.time()-recv_start_time>self.timeOut:
                             print("Request message timeout")
                             request = b""
+                            recv_start_time = None
                 elif data!=b"":
-                    request = data
+                    request += data
                     recv_start_time = time.time() 
             except BaseException as e:
                 print("Connection error: {e}".format(e))
