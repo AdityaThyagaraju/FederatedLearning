@@ -133,52 +133,13 @@ class ClientApp(kivy.app.App):
 
 class DetectThread(threading.Thread):
     
-    def __init__(self, kivy_app, buffer_size, recv_timeout):
+    def __init__(self):
         threading.Thread.__init__(self)
-        self.kivy_app = kivy_app
-        self.buffer_size = buffer_size
-        self.recv_timeout = recv_timeout 
-        
-    def recv(self):
-        received_data = b""
-        while True: 
-            try:
-                self.kivy_app.soc.settimeout(self.recv_timeout)
-                received_data += self.kivy_app.soc.recv(self.buffer_size)
-
-                try:
-                    pickle.loads(received_data)
-                    break
-                except BaseException:
-                    print("Could not receive the complete data from server.")
-                    self.kivy_app.label.text = "Could not receive the complete data from server."
-                    pass
-
-            except socket.timeout:
-                print("A socket.timeout exception occurred because the server did not send any data for {recv_timeout} seconds.".format(
-                    recv_timeout = self.recv_timeout))
-                self.kivy_app.label.text = "{recv_timeout} Seconds of Inactivity. socket.timeout Exception Occurred".format(
-                    recv_timeout = self.recv_timeout)
-                return None, 0
-            except BaseException as e:
-                print("Error While Receiving Data from the Server: {msg}.".format(msg=e))
-                self.kivy_app.label.text = "Error While Receiving Data from the Server"
-                return None, 0
-
-        try:
-            received_data = pickle.loads(received_data)
-        except BaseException as e:
-            print("Error Decoding the Data: {msg}.\n".format(msg=e))
-            self.kivy_app.label.text = "Error Decoding the Client's Data"
-            return None, 0
-
-        return received_data, 1
-    
-    def run(self):
         detect_dir = r"F:\vscode\Oral_Cancer_Dataset\data"
         files = os.listdir(detect_dir)
         model = tf.keras.models.load_model('mymodel.hdf5')
-
+    
+    def run(self):
         for file in files:                
             img = image.load_img(file, target_size = (224, 224))
             img_arr = image.img_to_array(img)
