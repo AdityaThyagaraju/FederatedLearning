@@ -135,16 +135,16 @@ class DetectThread(threading.Thread):
     
     def __init__(self):
         threading.Thread.__init__(self)
-        detect_dir = r"F:\vscode\Oral_Cancer_Dataset\data"
-        files = os.listdir(detect_dir)
-        model = tf.keras.models.load_model('mymodel.hdf5')
+        self.detect_dir = r"F:\vscode\Oral_Cancer_Dataset\detect"
+        self.files = os.listdir(self.detect_dir)
+        self.model = tf.keras.models.load_model('mymodel.hdf5')
     
     def run(self):
-        for file in files:                
+        for file in self.files:                
             img = image.load_img(file, target_size = (224, 224))
             img_arr = image.img_to_array(img)
             image = np.expand_dims(img_arr,axis=0)  
-            predict = model.predict(image)
+            predict = self.model.predict(image)
             
             if predict > 0.5:
                 predict = "Normal"
