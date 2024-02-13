@@ -69,9 +69,23 @@ class AppInterface(threading.Thread):
         self.bufferSize = bufferSize
         self.timeOut = timeOut
         self.app = app
-        
+    
+    def reply(self,message):
+        try:
+            print(message)
+            data = pickle.dumps(message)
+            print(data)
+            try:
+                self.connection.send(data)
+            except BaseException as e:
+                print("Connection error: {e}".format(e))
+        except BaseException as e:
+            print("Inappropriate message, generated exception {e}".format(e))
+    
     def reqHandler(self,req):
-        if type(req)!=dict:
+        serverModel = self.app.getInstance()
+        print(req)
+        if type(req)!=type(dict()):
             print("Error message format not supported")
             return
         if "subject" not in req or "data" not in req:
@@ -80,7 +94,8 @@ class AppInterface(threading.Thread):
         if req["subject"]=="request":
             message = {
                 "subject":"model",
-                "data":self.app.getInstance(),
+                "data":serverModel.to_json(),
+                "weights":serverModel.get_weights(),
                 "test_datagen":self.app.test_datagen,
                 "train_datagen":self.app.train_datagen,
                 "target_size":self.app.size,
@@ -92,62 +107,48 @@ class AppInterface(threading.Thread):
             self.app.federatedAverage(model)
             message = {
                 "subject":"model",
-                "data":self.app.getInstance()
+                "data":serverModel.to_json(),
+                "weights":serverModel.get_weights()
             }
             self.reply(message)
         else:
             print("Unrecognized request subject")
             
-    def reply(self,message):
-        try:
-            data = pickle.dumps(message)
-            try:
-                self.connection.send(data)
-            except BaseException as e:
-                print("Connection error: {e}".format(e))
-        except BaseException as e:
-            print("Inappropriate message, generated exception {e}".format(e))
-            
     def run(self):
-        request = b""
-        recv_start_time = None
-        while True:
-            try:
-                data = self.connection.recv(self.bufferSize)
-                if request!=b"":
-                    try:
-                        request+=data
-                        request = pickle.loads(request)
-                        self.reqHandler(request)
-                    except BaseException as e:
-                        if time.time()-recv_start_time>self.timeOut:
-                            print("Request message timeout")
-                            request = b""
-                            recv_start_time = None
-                elif data!=b"": 
-                    request += data
-                    recv_start_time = time.time() 
-            except BaseException as e:
-                print("Connection error: {e}".format(e))
+        data = b""
+        try:
+            data += self.connection.recv(self.bufferSize)
+            if data!=b"":
+                try:
+                    data = pickle.loads(data)
+                    self.reqHandler(data)
+                except BaseException as e:
+                    print(e)
+                    
+            elif data==b"": 
+                print("Empty request")
+        except BaseException as e:
+            print("Connection error: {e}".format(e=e))
 
 class IOthread(threading.Thread):
     def __init__(self,app):
         threading.Thread.__init__(self)
         self.app=app
+        self.soc = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
     def run(self):
-        print("server started at port no 5000")
+        self.soc.bind(("localhost",10000))
+        self.soc.listen()
+        print("Server started at PORT:10000")
         while True:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", 5000))
-                s.listen()
-                try:
-                    conn, addr = s.accept()
-                    with conn:
-                        print(f"Connected by {addr}")
-                        client=AppInterface(conn,BUFFERSIZE,TIMEOUT,app)
-                        client.start()
-                except BaseException as e:
-                    print(e)
+            try:
+                connection, client_info = self.soc.accept()
+                socket_thread = AppInterface(connection=connection,app=self.app,bufferSize=1024,timeOut=10)
+                socket_thread.start()
+                print("Client {client_info} is successfully connected".format(client_info=client_info))
+            except BaseException as e:
+                self.soc.close()
+                print(e)
+                break
 
 app = App(ROWS,COLS)
 iothread = IOthread(app)
