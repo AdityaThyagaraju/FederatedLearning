@@ -13,7 +13,7 @@ import time
 ROWS = 224
 COLS = 224
 BATCHSIZE = 50
-BUFFERSIZE = 4096
+BUFFERSIZE = 1024
 TIMEOUT = 50
 class App:
     def __init__(self,rows,cols):
@@ -109,33 +109,43 @@ class AppInterface(threading.Thread):
             print("Inappropriate message, generated exception {e}".format(e))
             
     def run(self):
-        request = b""
-        recv_start_time = None
-        while True:
+        received_data = b""
+        while True: 
             try:
-                data = self.connection.recv(self.bufferSize)
-                if request!=b"":
-                    try:
-                        request+=data
-                        request = pickle.loads(request)
-                        self.reqHandler(request)
-                    except BaseException as e:
-                        if time.time()-recv_start_time>self.timeOut:
-                            print("Request message timeout")
-                            request = b""
-                            recv_start_time = None
-                elif data!=b"": 
-                    request += data
-                    recv_start_time = time.time() 
+                self.kivy_app.soc.settimeout(self.recv_timeout)
+                received_data += self.kivy_app.soc.recv(self.buffer_size)
+
+                try:
+                    pickle.loads(received_data)
+                    break
+                except BaseException:
+                    print("Could not receive the complete data from server.")
+                    self.kivy_app.label.text = "Could not receive the complete data from server."
+                    pass
+
+            except socket.timeout:
+                print("A socket.timeout exception occurred because the server did not send any data for {recv_timeout} seconds.".format(
+                    recv_timeout = self.recv_timeout))
+                self.kivy_app.label.text = "{recv_timeout} Seconds of Inactivity. socket.timeout Exception Occurred".format(
+                    recv_timeout = self.recv_timeout)
+                
             except BaseException as e:
-                print("Connection error: {e}".format(e))
+                print("Error While Receiving Data from the Server: {msg}.".format(msg=e))
+                self.kivy_app.label.text = "Error While Receiving Data from the Server"
+                
+
+        try:
+            received_data = pickle.loads(received_data)
+        except BaseException as e:
+            print("Error Decoding the Data: {msg}.\n".format(msg=e))
+            self.kivy_app.label.text = "Error Decoding the Client's Data"
 
 class IOthread(threading.Thread):
     def __init__(self,app):
         threading.Thread.__init__(self)
         self.app=app
     def run(self):
-        print("serever started at port no 5000")
+        print("server started at port no 5000")
         while True:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", 5000))
