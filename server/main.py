@@ -72,9 +72,8 @@ class AppInterface(threading.Thread):
     
     def reply(self,message):
         try:
-            print(message)
             data = pickle.dumps(message)
-            print(data)
+            print(message)
             try:
                 self.connection.send(data)
             except BaseException as e:
@@ -91,26 +90,16 @@ class AppInterface(threading.Thread):
         if "subject" not in req or "data" not in req:
             print("Incomplete message")
             return
-        if req["subject"]=="request":
+        if req["subject"]=="request" or req["subject"]=="model":
             message = {
                 "subject":"model",
                 "data":serverModel.to_json(),
-                "weights":serverModel.get_weights(),
-                "test_datagen":self.app.test_datagen,
-                "train_datagen":self.app.train_datagen,
-                "target_size":self.app.size,
-                "batch_size":self.app.batchSize
             }
             self.reply(message)
-        elif req["subject"]=="model":
-            model = req["data"]
-            self.app.federatedAverage(model)
             message = {
-                "subject":"model",
-                "data":serverModel.to_json(),
-                "weights":serverModel.get_weights()
+                "subject":"weights",
+                "data":serverModel.get_weights(),
             }
-            self.reply(message)
         else:
             print("Unrecognized request subject")
             
