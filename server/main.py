@@ -2,14 +2,19 @@ import socket
 import tensorflow as tf
 import pickle
 import threading
-import image
+from tensorflow.keras.preprocessing import image
 import numpy as np
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 from tensorflow.keras.applications.vgg16 import VGG16
 import time
 
+
+ROWS = 224
+COLS = 224
 BATCHSIZE = 50
+BUFFERSIZE = 4096
+TIMEOUT = 50
 class App:
     def __init__(self,rows,cols):
         self.train_datagen = image.ImageDataGenerator(
@@ -59,6 +64,7 @@ class App:
     
 class AppInterface(threading.Thread):
     def __init__(self,connection,bufferSize,timeOut,app):
+        threading.Thread.__init__(self)
         self.connection = connection
         self.bufferSize = bufferSize
         self.timeOut = timeOut
@@ -118,17 +124,33 @@ class AppInterface(threading.Thread):
                             print("Request message timeout")
                             request = b""
                             recv_start_time = None
-                elif data!=b"":
+                elif data!=b"": 
                     request += data
                     recv_start_time = time.time() 
             except BaseException as e:
                 print("Connection error: {e}".format(e))
 
-class IOthread:
+class IOthread(threading.Thread):
     def __init__(self,app):
-        pass
+        threading.Thread.__init__(self)
+        self.app=app
     def run(self):
-        pass
-    
+        print("serever started at port no 5000")
+        while True:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 5000))
+                s.listen()
+                try:
+                    conn, addr = s.accept()
+                    with conn:
+                        print(f"Connected by {addr}")
+                        client=AppInterface(conn,BUFFERSIZE,TIMEOUT,app)
+                        client.start()
+                except BaseException as e:
+                    print(e)
+
+app = App(ROWS,COLS)
+iothread = IOthread(app)
+iothread.start()
     
     
