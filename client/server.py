@@ -176,6 +176,7 @@ class IOthread(threading.Thread):
         threading.Thread.__init__(self)
         self.app = app
         self.soc = socket.socket(family = socket.AF_INET, type = socket.SOCK_STREAM)
+        
     def run(self):
         self.soc.bind(("localhost",10000))
         self.soc.listen()

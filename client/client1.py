@@ -329,13 +329,13 @@ class RecvThread(threading.Thread):
                                 class_mode = 'binary'
                             )
             
-            history = model.fit(
-                        train_generator,
-                        steps_per_epoch = 15,
-                        epochs = 10,
-                        validation_data = test_generator,
-                        callbacks = self.callback
-                    )
+            model.fit(
+                train_generator,
+                steps_per_epoch = 15,
+                epochs = 10,
+                validation_data = test_generator,
+                callbacks = self.callback
+            )
             
             self.kivy_app.label.text = f"Trained model has accuracy of {model.evaluate(test_generator)[2] * 100}."
             
@@ -343,6 +343,13 @@ class RecvThread(threading.Thread):
                 os.remove('mymodel.hdf5')
                 
             model.save('mymodel.hdf5')
+            
+            message = {
+                'subject': 'Weights for update',
+                'weights': model.get_weights()
+            }
+            
+            self.send(message)
             
             
 clientApp = ClientApp()
