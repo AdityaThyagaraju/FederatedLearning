@@ -37,19 +37,19 @@ class App:
             metrics = ['accuracy','Precision','Recall','AUC']
         )
         
-    # def updateWeights(self,newWeights):
-    #     self.baseModel.set_weights(newWeights)
+    def updateWeights(self,newWeights):
+        self.baseModel.set_weights(newWeights)
     
-    # def federatedAverage(self,clientModel):
-    #     averaged_weights = []
-    #     server_layer_weights = self.model.get_weights()
-    #     client_layer_weights = clientModel.get_weights()
-    #     averaged_weights.append(server_layer_weights)
-    #     averaged_weights.append(client_layer_weights)
-    #     for i in range(len(averaged_weights[0])):
-    #         layer_weights = [model[i] for model in averaged_weights]
-    #         averaged_weights[i] = np.mean(layer_weights, axis=0)
-    #     self.updateWeights(averaged_weights)
+    def federatedAverage(self,clientModel):
+        averaged_weights = []
+        server_layer_weights = self.model.get_weights()
+        client_layer_weights = clientModel.get_weights()
+        averaged_weights.append(server_layer_weights)
+        averaged_weights.append(client_layer_weights)
+        for i in range(len(averaged_weights[0])):
+            layer_weights = [model[i] for model in averaged_weights]
+            averaged_weights[i] = np.mean(layer_weights, axis=0)
+        self.updateWeights(averaged_weights)
         
     def get_weights(self):
         return self.model.get_weights()

@@ -1,12 +1,15 @@
 import os
 import socket
-import pickle
 import threading
+import tqdm
+import dill
+import cv2
 
 import tensorflow as tf
 import numpy as np
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import * 
+from tensorflow.keras.applications import *
 from tensorflow.keras.preprocessing import image
 
 import kivy.app
@@ -15,6 +18,14 @@ import kivy.uix.label
 import kivy.uix.boxlayout
 import kivy.uix.textinput
 
+TRAIN_SET_DIR = r"client\client1"
+TEST_SET_DIR = r"client\test"
+
+Architecture = None
+if os.path.exists('mymodel.hdf5'):
+    Architecture = True
+else:
+    Architecture = False
 
 class ClientApp(kivy.app.App):
 
@@ -55,7 +66,6 @@ class ClientApp(kivy.app.App):
         self.recv_train_model_btn.disabled = True
         recvThread = RecvThread(
             kivy_app = self, 
-            buffer_size = 1024, 
             recv_timeout = 10
         )
         recvThread.start()
@@ -139,171 +149,209 @@ class DetectThread(threading.Thread):
     
     def __init__(self):
         threading.Thread.__init__(self)
-        self.detect_dir = r"F:\vscode\Oral_Cancer_Dataset\detect"
-        self.files = os.listdir(self.detect_dir)
+        self.directory = r"client\detect"
         self.model = tf.keras.models.load_model('mymodel.hdf5')
     
     def run(self):
-        for file in self.files:                
-            img = image.load_img(file, target_size = (224, 224))
-            img_arr = image.img_to_array(img)
-            image = np.expand_dims(img_arr,axis=0)  
-            predict = self.model.predict(image)
-            
-            if predict > 0.5:
-                predict = "Normal"
-            else:
-                predict = "Cancer"
-                
-            print(f'{file}: {predict}'.format(file = file, predict = predict))
+        image_files = os.listdir(self.directory)
 
+        for filename in image_files:
+            img_path = os.path.join(self.directory, filename)
+            img = image.load_img(img_path, target_size=(224, 224))
             
+            img_array = image.img_to_array(img)
+            img_array = np.expand_dims(img_array, axis=0)
+            
+            y_pred = self.model.predict(img_array)
+            
+            if y_pred < 0.5:
+                prediction = "Cancer"
+            else:
+                prediction = "Normal"
+            
+            with open('client\detection.txt', 'a') as f:
+                f.write(str(img_path) + ': ')
+                f.write(str(prediction) + '\n')
+
 class RecvThread(threading.Thread):
 
-    def __init__(self, kivy_app, buffer_size, recv_timeout):
+    def __init__(self, kivy_app, recv_timeout):
         threading.Thread.__init__(self)
         self.kivy_app = kivy_app
-        self.buffer_size = buffer_size
-        self.recv_timeout = recv_timeout
+        self.recv_timeout = recv_timeout    
+        
+        mp = tf.keras.callbacks.ModelCheckpoint(
+            filepath = 'mymodel.hdf5', 
+            verbose = 2, 
+            save_best_only = True
+        )
+        
+        es = tf.keras.callbacks.EarlyStopping(
+            monitor = 'val_loss', 
+            min_delta = 0.05, 
+            patience = 3
+        )
+        
+        self.callback = [es, mp]
 
     def recv(self):
+        data_size_bytes = self.kivy_app.soc.recv(8)
+        data_size = int.from_bytes(data_size_bytes, byteorder='big')
+
+        data_received = b""
         received_data = b""
-        while True: 
-            try:
-                self.kivy_app.soc.settimeout(self.recv_timeout)
-                received_data += self.kivy_app.soc.recv(self.buffer_size)
-
-                try:
-                    pickle.loads(received_data)
-                    break
-                except BaseException:
-                    print("Could not receive the complete data from server.")
-                    self.kivy_app.label.text = "Could not receive the complete data from server."
-                    pass
-
-            except socket.timeout:
-                print("A socket.timeout exception occurred because the server did not send any data for {recv_timeout} seconds.".format(
-                    recv_timeout = self.recv_timeout))
-                self.kivy_app.label.text = "{recv_timeout} Seconds of Inactivity. socket.timeout Exception Occurred".format(
-                    recv_timeout = self.recv_timeout)
-                return None, 0
-            except BaseException as e:
-                print("Error While Receiving Data from the Server: {msg}.".format(msg=e))
-                self.kivy_app.label.text = "Error While Receiving Data from the Server"
-                return None, 0
 
         try:
-            received_data = pickle.loads(received_data)
+            self.kivy_app.soc.settimeout(self.recv_timeout)
+            
+            self.kivy_app.label.text = "Receiving data from Server........"
+            
+            with tqdm.tqdm(total = data_size, unit = 'B', unit_scale = True, desc = 'Receiving Data from Server') as pbar:
+                while len(data_received) < data_size:
+                    chunk = self.kivy_app.soc.recv(min(data_size - len(data_received), 1024*1024))
+                    if not chunk:
+                        break
+                    data_received += chunk
+                    pbar.update(len(chunk))
+
+        except socket.timeout:
+            print("A socket.timeout exception occurred because the server did not send any data for {recv_timeout} seconds.".format(
+                recv_timeout = self.recv_timeout))
+            self.kivy_app.label.text = "{recv_timeout} Seconds of Inactivity. socket.timeout Exception Occurred".format(
+                recv_timeout = self.recv_timeout)
+            return None, 0
+        
         except BaseException as e:
-            print("Error Decoding the Data: {msg}.\n".format(msg=e))
-            self.kivy_app.label.text = "Error Decoding the Client's Data"
+            print("Error While Receiving Data from the Server: {msg}.".format(msg=e))
+            self.kivy_app.label.text = "Error While Receiving Data from the Server"
             return None, 0
 
+        try:
+            received_data = dill.loads(data_received)
+        except BaseException as e:
+            print("Error Decoding the Data: {msg}.\n".format(msg=e))
+            self.kivy_app.label.text = "Error Decoding the Data"
+            return None, 0
+        
+        self.kivy_app.label.text = "Complete data received from the server."
+        print('\n')
+
         return received_data, 1
+    
+    def send(self, message):
+        data_byte = dill.dumps(message)
+        data_size = len(data_byte)
+
+        self.kivy_app.label.text = "Sending a {subject} to the Server".format(subject = 'request')
+        
+        try:
+            self.kivy_app.soc.sendall(data_size.to_bytes(8, byteorder='big'))
+            chunk_size = 1024*1024
+            bytes_sent = 0
+            
+            with tqdm.tqdm(total = data_size, unit = 'B', unit_scale = True, desc = 'Sending Data to Server') as pbar:
+                while bytes_sent < data_size:
+                    chunk = data_byte[bytes_sent:bytes_sent + chunk_size]
+                    self.kivy_app.soc.sendall(chunk)
+                    bytes_sent += len(chunk)
+                    pbar.update(len(chunk))
+            
+        except BaseException as e:
+            self.kivy_app.label.text = "Error Connecting to the Server. The server might has been closed."
+            print("Error Connecting to the Server: {msg}".format(msg=e))
+        
+        print('\n')
 
     def run(self):
-
-        subject = "request"
-        model = None
-        train_set = r"F:\vscode\Oral_Cancer_Dataset\client1"
-        test_set = r"F:\vscode\Oral_Cancer_Dataset\test"
-        test_datagen = None
-        train_datagen = None
-        target_size = None
-        batch_size = None
-        test_generator = None
-        train_generator = None
-        callback = None
-
-        while True:
-            data = {"subject": subject, "data": model}
-            data_byte = pickle.dumps(data)
-
-            self.kivy_app.label.text = "Sending a {subject} to the Server".format(
-                subject=subject)
-            try:
-                self.kivy_app.soc.sendall(data_byte)
-            except BaseException as e:
-                self.kivy_app.label.text = "Error Connecting to the Server. The server might has been closed."
-                print("Error Connecting to the Server: {msg}".format(msg=e))
-                break
-
-            self.kivy_app.label.text = "Receiving Reply from the Server"
-            received_data, status = self.recv()
-
-            if status == 0:
-                self.kivy_app.label.text = "Nothing Received from the Server"
-                break
-            else:
-                self.kivy_app.label.text = "New Message from the Server"
-
-            subject = received_data["subject"]
-
-            if subject == "model":
-                if model:
-                    model.save('mymodel.hdf5')
-                    break
-                else:
-                    test_datagen = received_data['test_datagen']
-                    train_datagen = received_data['train_datagen']
-                    
-                    target_size = received_data['target_size']
-                    batch_size = received_data['batch_size'] if batch_size in received_data else 8
-                    
-                    train_generator = train_datagen.flow_from_directory(
-                                        train_set,
-                                        target_size = target_size,
-                                        batch_size = batch_size,
-                                        class_mode = 'binary'
-                                    )
-                    
-                    test_generator = test_datagen.flow_from_directory(
-                                        test_set,
-                                        target_size = target_size,
-                                        batch_size = batch_size,
-                                        class_mode = 'binary'
-                                    )
-                    
-                    mp = tf.keras.callbacks.ModelCheckpoint(
-                        filepath='mymodel.hdf5', 
-                        verbose=2, 
-                        save_best_only=True
-                    )
-                    
-                    es = tf.keras.callbacks.EarlyStopping(
-                        monitor='val_loss', 
-                        min_delta=0.05, 
-                        patience=3
-                    )
-                    
-                    callback = [es, mp]
-                
-                model = received_data["data"]
-
-                history = model.fit(
-                            train_generator,
-                            steps_per_epoch = 80,
-                            epochs = 20,
-                            validation_data = test_generator,
-                            callbacks = callback
-                        )
-                
-                print(history.history)
-                
-                model = tf.keras.models.load_model('mymodel.hdf5')
-                
-                file_path = 'mymodel.hdf5'
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+        global Architecture
+        
+        if not Architecture:
+            Architecture = True
+            message = {
+                'subject': 'Request for architecture',
+                'data': None
+            }
             
+            self.send(message)
+            received_data, status = self.recv()
+            
+            if status == 0:
+                self.kivy_app.label.text = "Nothing Received from the Server."
             else:
-                self.kivy_app.label.text = "Unrecognized Message Type: {subject}".format(
-                    subject=subject)
-                break
+                self.kivy_app.label.text = "New Message from the Server."
+                
+                model = received_data['model']
+                optimizer = received_data['optimizer']
+                loss = received_data['loss']
+                metrics = received_data['metrics']
+                
+                model.compile(
+                    optimizer = optimizer, 
+                    loss = loss, 
+                    metrics = metrics
+                )
+                
+                model.save('mymodel.hdf5')
+                
+        message = {
+            'subject': 'Request for weights and image generators',
+            'data': None
+        }        
+        
+        self.send(message)
+        received_data, status = self.recv()
 
-            subject = 'model'            
-
-
+        if status == 0:
+            self.kivy_app.label.text = "Nothing Received from the Server."
+        else:
+            self.kivy_app.label.text = "New Message from the Server."
+            
+            model = tf.keras.models.load_model('mymodel.hdf5')
+            
+            train_datagen = received_data['train_datagen']
+            test_datagen = received_data['test_datagen']
+            target_size = received_data['target_size']
+            batch_size = received_data['batch_size']   
+            model_weights = received_data['weights']
+            model.set_weights(model_weights)
+            
+            train_generator = train_datagen.flow_from_directory(
+                                TRAIN_SET_DIR,
+                                target_size = target_size,
+                                batch_size = batch_size,
+                                class_mode = 'binary'
+                            )
+            
+            test_generator = test_datagen.flow_from_directory(
+                                TEST_SET_DIR,
+                                target_size = target_size,
+                                batch_size = batch_size,
+                                class_mode = 'binary'
+                            )
+            
+            model.fit(
+                train_generator,
+                steps_per_epoch = 15,
+                epochs = 10,
+                validation_data = test_generator,
+                callbacks = self.callback
+            )
+            
+            self.kivy_app.label.text = f"Trained model has accuracy of {model.evaluate(test_generator)[2] * 100}."
+            
+            if os.path.exists('mymodel.hdf5'):
+                os.remove('mymodel.hdf5')
+                
+            model.save('mymodel.hdf5')
+            
+            message = {
+                'subject': 'Weights for update',
+                'weights': model.get_weights()
+            }
+            
+            self.send(message)
+            
+            
 clientApp = ClientApp()
 clientApp.title = "Client 1 App"
 clientApp.run()
