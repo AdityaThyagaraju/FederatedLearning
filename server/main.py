@@ -39,16 +39,22 @@ class App:
         
     def updateWeights(self,newWeights):
         self.model.set_weights(newWeights)
+        
+        
+    def recAverage(self,l1,l2):
+        avg = []
+        if type(l1)==type(l2):
+            if type(l1)==type(list()):
+                for i in range(len(l1)):
+                    avg.append(self.recAverage(l1[i],l2[i]))
+                return avg
+            return (l1+l2)/2
     
     def federatedAverage(self,client_layer_weights):
-        averaged_weights = []
         server_layer_weights = self.model.get_weights()
-        averaged_weights.append(server_layer_weights)
-        averaged_weights.append(client_layer_weights)
-        for i in range(len(averaged_weights[0])):
-            layer_weights = [model[i] for model in averaged_weights]
-            averaged_weights[i] = np.mean(layer_weights, axis=0)
+        averaged_weights = self.recAverage(client_layer_weights,server_layer_weights)
         self.updateWeights(averaged_weights)
+        print("Federated averaging completed, Updated weights successfully")
         
     def get_weights(self):
         return self.model.get_weights()
