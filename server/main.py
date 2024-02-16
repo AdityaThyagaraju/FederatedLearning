@@ -1,66 +1,89 @@
 import socket
-import tensorflow as tf
-import pickle
 import threading
-from tensorflow.keras.preprocessing import image
+import dill
+import tqdm
+
 import numpy as np
+import tensorflow as tf
+
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
-from tensorflow.keras.applications.vgg16 import VGG16
-import time
+from tensorflow.keras.applications import *
+from tensorflow.keras.preprocessing import image
 
 
 ROWS = 224
 COLS = 224
-BATCHSIZE = 50
-BUFFERSIZE = 1024
 TIMEOUT = 50
 class App:
     def __init__(self,rows,cols):
-        self.train_datagen = image.ImageDataGenerator(
-            rotation_range=15,
-            shear_range=0.2,
-            zoom_range=0.2,
-            horizontal_flip=True,
-            width_shift_range=0.1,
-            height_shift_range=0.1)
         
-        self.test_datagen= image.ImageDataGenerator(rotation_range=15,
-            shear_range=0.2,
-            zoom_range=0.2, 
-            horizontal_flip=True,
-            width_shift_range=0.1,
-            height_shift_range=0.1)
+        self.base_for_model = tf.keras.applications.VGG16(weights = 'imagenet', input_shape = (224,224,3), include_top = False)
+        for layer in self.base_for_model.layers:
+            layer.trainable = False
+            
+        self.model = Sequential()
+        self.model.add(self.base_for_model) 
+        self.model.add(GaussianNoise(0.25))
+        self.model.add(GlobalAveragePooling2D())
+        self.model.add(Dense(512, activation = 'relu'))
+        self.model.add(BatchNormalization())
+        self.model.add(Dense(1, activation = 'sigmoid'))
         
-        self.size = (rows,cols)
-        self.batchSize = BATCHSIZE
+        self.adam = tf.keras.optimizers.Adam(learning_rate = 0.001)
+        self.model.compile(
+            optimizer = self.adam, 
+            loss = 'binary_crossentropy', 
+            metrics = ['accuracy','Precision','Recall','AUC']
+        )
         
-        base_for_model = tf.keras.applications.VGG16(weights='imagenet', input_shape=(224,224,3), include_top=False)
-        self.baseModel = base_for_model
-        
-    def updateWeights(self,newWeights):
-        self.baseModel.set_weights(newWeights)
+    # def updateWeights(self,newWeights):
+    #     self.baseModel.set_weights(newWeights)
     
-    def federatedAverage(self,clientModel):
-        averaged_weights = []
-        server_layer_weights = self.model.get_weights()
-        client_layer_weights = clientModel.get_weights()
-        averaged_weights.append(server_layer_weights)
-        averaged_weights.append(client_layer_weights)
-        for i in range(len(averaged_weights[0])):
-            layer_weights = [model[i] for model in averaged_weights]
-            averaged_weights[i] = np.mean(layer_weights, axis=0)
-        self.updateWeights(averaged_weights)
+    # def federatedAverage(self,clientModel):
+    #     averaged_weights = []
+    #     server_layer_weights = self.model.get_weights()
+    #     client_layer_weights = clientModel.get_weights()
+    #     averaged_weights.append(server_layer_weights)
+    #     averaged_weights.append(client_layer_weights)
+    #     for i in range(len(averaged_weights[0])):
+    #         layer_weights = [model[i] for model in averaged_weights]
+    #         averaged_weights[i] = np.mean(layer_weights, axis=0)
+    #     self.updateWeights(averaged_weights)
         
-    def getInstance(self):
-        model = Sequential()
-        model.add(self.baseModel) 
-        model.add(GaussianNoise(0.25)) 
-        model.add(GlobalAveragePooling2D()) 
-        model.add(Dense(512, activation = 'relu'))
-        model.add(BatchNormalization()) 
-        model.add(Dense(1, activation='sigmoid'))
-        return model
+    def get_weights(self):
+        return self.model.get_weights()
+    
+    def image_generators(self):
+        train_datagen = image.ImageDataGenerator(
+            rotation_range = 15,
+            shear_range = 0.2,
+            zoom_range = 0.2,
+            horizontal_flip = True,
+            width_shift_range = 0.1,
+            height_shift_range = 0.1
+        )
+        
+        test_datagen = image.ImageDataGenerator(    
+            rotation_range = 15,
+            shear_range = 0.2,
+            zoom_range = 0.2,
+            horizontal_flip = True,
+            width_shift_range = 0.1,
+            height_shift_range = 0.1
+        )
+        
+        target_size = (224, 224)
+        batch_size = 16
+        
+        return train_datagen, test_datagen, target_size, batch_size
+    
+    def model_architecture(self):        
+        optimizer = self.adam
+        loss = 'binary_crossentropy'
+        metrics = ['accuracy', 'Precision', 'Recall', 'AUC']
+        
+        return self.model, optimizer, loss, metrics
     
 class AppInterface(threading.Thread):
     def __init__(self,connection,bufferSize,timeOut,app):
@@ -70,60 +93,89 @@ class AppInterface(threading.Thread):
         self.timeOut = timeOut
         self.app = app
     
-    def reply(self,message):
+    def reply(self, message):
+        data_pickle = dill.dumps(message)
+        data_size = len(data_pickle)
+        
+        self.connection.sendall(data_size.to_bytes(8, byteorder = 'big'))
+        
+        chunk_size = 1024*1024
+        bytes_sent = 0
+        
         try:
-            data = pickle.dumps(message)
-            print(message)
-            try:
-                self.connection.send(data)
-            except BaseException as e:
-                print("Connection error: {e}".format(e))
+            with tqdm.tqdm(total = data_size, unit = 'B', unit_scale = True, desc = 'Sending Data to Client') as pbar:
+                while bytes_sent < data_size:
+                    chunk = data_pickle[bytes_sent:bytes_sent + chunk_size]
+                    self.connection.sendall(chunk)
+                    bytes_sent += len(chunk)
+                    pbar.update(len(chunk))
         except BaseException as e:
-            print("Inappropriate message, generated exception {e}".format(e))
+            print("Error Connecting to the client: {msg}".format(msg=e))
+        print('\n')
     
-    def reqHandler(self,req):
-        serverModel = self.app.getInstance()
-        print(req)
-        if type(req)!=type(dict()):
-            print("Error message format not supported")
-            return
+    def reqHandler(self,req):        
         if "subject" not in req or "data" not in req:
             print("Incomplete message")
-            return
-        if req["subject"]=="request" or req["subject"]=="model":
-            message = {
-                "subject":"model",
-                "data":serverModel.to_json(),
-            }
-            self.reply(message)
-            message = {
-                "subject":"weights",
-                "data":serverModel.get_weights(),
-            }
         else:
-            print("Unrecognized request subject")
+            if req['subject'] == 'Request for architecture':
+                model, optimizer, loss, metrics = self.app.model_architecture()
+                message = {
+                    'model': model,
+                    'optimizer': optimizer,
+                    'loss': loss,
+                    'metrics': metrics,
+                }
+                self.reply(message)
+            
+            if req['subject'] == 'Request for weights and image generators':
+                train_datagen, test_datagen, target_size, batch_size = self.app.image_generators()
+                weights = self.app.get_weights()
+                message = {
+                    'train_datagen': train_datagen, 
+                    'test_datagen': test_datagen, 
+                    'target_size': target_size, 
+                    'batch_size': batch_size,
+                    'weights': weights
+                }
+                self.reply(message)
             
     def run(self):
-        data = b""
-        try:
-            data += self.connection.recv(self.bufferSize)
-            if data!=b"":
-                try:
-                    data = pickle.loads(data)
-                    self.reqHandler(data)
-                except BaseException as e:
-                    print(e)
-                    
-            elif data==b"": 
-                print("Empty request")
-        except BaseException as e:
-            print("Connection error: {e}".format(e=e))
+        while True:
+            data_size_bytes = self.connection.recv(8)
+            if not data_size_bytes:
+                continue
+            data_size = int.from_bytes(data_size_bytes, byteorder='big')
+
+            data_received = b""
+            received_data = b""
+
+            try:
+                with tqdm.tqdm(total = data_size, unit = 'B', unit_scale = True, desc = 'Receiving Data from Client') as pbar:
+                    while len(data_received) < data_size:
+                        chunk = self.connection.recv(min(data_size - len(data_received), 1024*1024))
+                        if not chunk:
+                            break
+                        data_received += chunk
+                        pbar.update(len(chunk))
+            
+            except BaseException as e:
+                print("Error While Receiving Data from the Client: {msg}.".format(msg=e))
+                continue
+
+            try:
+                received_data = dill.loads(data_received)
+            except BaseException as e:
+                print("Error Decoding the Data: {msg}.\n".format(msg=e))
+                continue
+            print('\n')
+
+            self.reqHandler(received_data)
 
 class IOthread(threading.Thread):
     def __init__(self,app):
         threading.Thread.__init__(self)
-        self.app=app
-        self.soc = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
+        self.app = app
+        self.soc = socket.socket(family = socket.AF_INET, type = socket.SOCK_STREAM)
     def run(self):
         self.soc.bind(("localhost",10000))
         self.soc.listen()
@@ -131,9 +183,9 @@ class IOthread(threading.Thread):
         while True:
             try:
                 connection, client_info = self.soc.accept()
-                socket_thread = AppInterface(connection=connection,app=self.app,bufferSize=1024,timeOut=10)
+                socket_thread = AppInterface(connection = connection, app = self.app, bufferSize = 1024, timeOut = 10)
                 socket_thread.start()
-                print("Client {client_info} is successfully connected".format(client_info=client_info))
+                print("Client {client_info} is successfully connected.\n".format(client_info = client_info))
             except BaseException as e:
                 self.soc.close()
                 print(e)
