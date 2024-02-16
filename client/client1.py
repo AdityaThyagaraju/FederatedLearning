@@ -151,35 +151,27 @@ class DetectThread(threading.Thread):
         threading.Thread.__init__(self)
         self.directory = r"client\detect"
         self.model = tf.keras.models.load_model('mymodel.hdf5')
-        
-    def load_images_from_directory(self, directory):
-        images = []
-        for filename in os.listdir(directory):
-            if filename.endswith(".jpg") or filename.endswith(".png"):
-                img_path = os.path.join(directory, filename)
-                img = cv2.imread(img_path)
-                images.append((img_path, img))
-        return images
-
-    def preprocess_image(self, img):
-        img = cv2.resize(img, (224, 224))
-        img = img / 255.0
-        img = np.expand_dims(img, axis=0)
-        return img
-
-    def predict_cancer(self, img):
-        img = self.preprocess_image(img)
-        prediction = self.model.predict(img)
-        return prediction
     
     def run(self):
-        images = self.load_images_from_directory(self.directory)
+        image_files = os.listdir(self.directory)
 
-        for img_path, img in images:
-            prediction = self.predict_cancer(img)
-            cancer_detected = prediction > 0.5
+        for filename in image_files:
+            img_path = os.path.join(self.directory, filename)
+            img = image.load_img(img_path, target_size=(224, 224))
+            
+            img_array = image.img_to_array(img)
+            img_array = np.expand_dims(img_array, axis=0)
+            
+            y_pred = self.model.predict(img_array)
+            
+            if y_pred < 0.5:
+                prediction = "Cancer"
+            else:
+                prediction = "Normal"
+            
             with open('client\detection.txt', 'a') as f:
-                f.write(f"Image: {img_path}, Cancer Detected: {cancer_detected}\n")
+                f.write(str(img_path) + ': ')
+                f.write(str(prediction) + '\n')
 
 class RecvThread(threading.Thread):
 
@@ -338,14 +330,14 @@ class RecvThread(threading.Thread):
                             )
             
             history = model.fit(
-                        test_generator,
+                        train_generator,
                         steps_per_epoch = 15,
-                        epochs = 2,
+                        epochs = 10,
                         validation_data = test_generator,
                         callbacks = self.callback
                     )
             
-            self.kivy_app.label.text = f"Trained model has accuracy of {history.history['accuracy']}."
+            self.kivy_app.label.text = f"Trained model has accuracy of {model.evaluate(test_generator)[2] * 100}."
             
             if os.path.exists('mymodel.hdf5'):
                 os.remove('mymodel.hdf5')
