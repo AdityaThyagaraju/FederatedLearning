@@ -257,7 +257,26 @@ class Update:
         else:
             self.model.set_weights(received_data['weights'])
             self.kivy_app.label.text = "Model Updated."
-
+            
+            test_datagen = image.ImageDataGenerator(    
+                rotation_range = 15,
+                shear_range = 0.2,
+                zoom_range = 0.2,
+                horizontal_flip = True,
+                width_shift_range = 0.1,
+                height_shift_range = 0.1
+            )
+            
+            test_generator = test_datagen.flow_from_directory(
+                                TEST_SET_DIR,
+                                target_size = (224, 224),
+                                batch_size = 16,
+                                class_mode = 'binary'
+                            )
+            
+            acc = self.model.evaluate(test_generator)[2] * 100
+            print(acc)
+            
 class Detect:
     
     def __init__(self, kivy_app):
@@ -266,7 +285,7 @@ class Detect:
         self.model = tf.keras.models.load_model('mymodel.hdf5')
     
     def run(self):
-        filename = '1.jpg'
+        filename = '7.jpg'
         img_path = os.path.join(self.directory, filename)
         img = image.load_img(img_path, target_size=(224, 224))
         
@@ -368,12 +387,14 @@ class Train:
             model.fit(
                 train_generator,
                 steps_per_epoch = 15,
-                epochs = 10,
+                epochs = 1,
                 validation_data = test_generator,
                 callbacks = self.callback
             )
             
-            self.kivy_app.label.text = f"Trained model has accuracy of {model.evaluate(test_generator)[2] * 100}."
+            acc = model.evaluate(test_generator)[2] * 100
+            self.kivy_app.label.text = f"Trained model has accuracy of {acc}."
+            print(acc)
             
             if os.path.exists('mymodel.hdf5'):
                 os.remove('mymodel.hdf5')

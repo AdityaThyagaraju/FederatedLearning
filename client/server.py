@@ -37,19 +37,24 @@ class App:
             metrics = ['accuracy','Precision','Recall','AUC']
         )
         
-    # def updateWeights(self,newWeights):
-    #     self.baseModel.set_weights(newWeights)
+    def updateWeights(self,newWeights):
+        self.model.set_weights(newWeights)
+        
+        
+    def recAverage(self,l1,l2):
+        avg = []
+        if type(l1)==type(l2):
+            if type(l1)==type(list()):
+                for i in range(len(l1)):
+                    avg.append(self.recAverage(l1[i],l2[i]))
+                return avg
+            return (l1+l2)/2
     
-    # def federatedAverage(self,clientModel):
-    #     averaged_weights = []
-    #     server_layer_weights = self.model.get_weights()
-    #     client_layer_weights = clientModel.get_weights()
-    #     averaged_weights.append(server_layer_weights)
-    #     averaged_weights.append(client_layer_weights)
-    #     for i in range(len(averaged_weights[0])):
-    #         layer_weights = [model[i] for model in averaged_weights]
-    #         averaged_weights[i] = np.mean(layer_weights, axis=0)
-    #     self.updateWeights(averaged_weights)
+    def federatedAverage(self,client_layer_weights):
+        server_layer_weights = self.model.get_weights()
+        averaged_weights = self.recAverage(client_layer_weights,server_layer_weights)
+        self.updateWeights(averaged_weights)
+        print("Federated averaging completed, Updated weights successfully")
         
     def get_weights(self):
         return self.model.get_weights()
@@ -127,7 +132,7 @@ class AppInterface(threading.Thread):
                 }
                 self.reply(message)
             
-            if req['subject'] == 'Request for weights and image generators':
+            elif req['subject'] == 'Request for weights and image generators':
                 train_datagen, test_datagen, target_size, batch_size = self.app.image_generators()
                 weights = self.app.get_weights()
                 message = {
@@ -138,14 +143,21 @@ class AppInterface(threading.Thread):
                     'weights': weights
                 }
                 self.reply(message)
-            
-            if req['subject'] == 'Request for weights':
-                weights = self.app.get_weights()
+                            
+            elif req['subject'] == 'Request for weights':
                 message = {
-                    'weights': weights
+                    'weights': self.app.get_weights()
                 }
                 self.reply(message)
+                
+            elif req['subject']=="Weights for update":
+                clientWeights = req['weights']
+                self.app.federatedAverage(clientWeights) 
             
+            else:
+                print("Unrecognized subject")            
+                                
+                
     def run(self):
         while True:
             data_size_bytes = self.connection.recv(8)
@@ -183,7 +195,6 @@ class IOthread(threading.Thread):
         threading.Thread.__init__(self)
         self.app = app
         self.soc = socket.socket(family = socket.AF_INET, type = socket.SOCK_STREAM)
-        
     def run(self):
         self.soc.bind(("localhost",10000))
         self.soc.listen()
