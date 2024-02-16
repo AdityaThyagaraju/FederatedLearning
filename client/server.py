@@ -114,7 +114,7 @@ class AppInterface(threading.Thread):
         print('\n')
     
     def reqHandler(self,req):        
-        if "subject" not in req or "data" not in req:
+        if "subject" not in req:
             print("Incomplete message")
         else:
             if req['subject'] == 'Request for architecture':
@@ -135,6 +135,13 @@ class AppInterface(threading.Thread):
                     'test_datagen': test_datagen, 
                     'target_size': target_size, 
                     'batch_size': batch_size,
+                    'weights': weights
+                }
+                self.reply(message)
+            
+            if req['subject'] == 'Request for weights':
+                weights = self.app.get_weights()
+                message = {
                     'weights': weights
                 }
                 self.reply(message)

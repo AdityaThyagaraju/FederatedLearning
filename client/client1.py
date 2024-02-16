@@ -34,6 +34,10 @@ class ClientApp(kivy.app.App):
             self.model_exists = True
         else:
             self.model_exists = False
+        self.ioobject = IOclass(
+            kivy_app = self,
+            timeout = 10
+        )
 
     def create_socket(self, *args):
         self.soc = socket.socket(
@@ -64,22 +68,25 @@ class ClientApp(kivy.app.App):
 
     def recv_train_model(self, *args):
         self.recv_train_model_btn.disabled = True
-        recvThread = RecvThread(
+        recv = Train(
             kivy_app = self, 
-            recv_timeout = 10
+            ioobject = self.ioobject
         )
-        recvThread.start()
+        recv.run()
         self.detect_btn.disabled = False
         
     def detect(self, *args):
         self.detect_btn.disabled = True
-        detectThread = DetectThread()
-        detectThread.start()
+        detect = Detect(kivy_app = self)
+        detect.run()
         self.detect_btn.disabled = False
 
     def get_updated_weights(self, *args):
-        updateThread = UpdateThread()
-        updateThread.start()
+        update = Update(
+            kivy_app = self,
+            ioobject = self.ioobject
+        )
+        update.run()
 
     def close_socket(self, *args):
         self.soc.close()
@@ -157,69 +164,11 @@ class ClientApp(kivy.app.App):
 
         return self.box_layout
 
-# class IOclass:
-#     def __init__(self):
-
-
-
-class UpdateThread(threading.Thread):
-
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.model=tf.keras.models.load_model('mymodel.hdf5')
-    
-
-
-
-class DetectThread(threading.Thread):
-    
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.directory = r"client\detect"
-        self.model = tf.keras.models.load_model('mymodel.hdf5')
-    
-    def run(self):
-        image_files = os.listdir(self.directory)
-
-        for filename in image_files:
-            img_path = os.path.join(self.directory, filename)
-            img = image.load_img(img_path, target_size=(224, 224))
-            
-            img_array = image.img_to_array(img)
-            img_array = np.expand_dims(img_array, axis=0)
-            
-            y_pred = self.model.predict(img_array)
-            
-            if y_pred < 0.5:
-                prediction = "Cancer"
-            else:
-                prediction = "Normal"
-            
-            with open('client\detection.txt', 'a') as f:
-                f.write(str(img_path) + ': ')
-                f.write(str(prediction) + '\n')
-
-class RecvThread(threading.Thread):
-
-    def __init__(self, kivy_app, recv_timeout):
-        threading.Thread.__init__(self)
+class IOclass:
+    def __init__(self, kivy_app, timeout):
         self.kivy_app = kivy_app
-        self.recv_timeout = recv_timeout    
+        self.recv_timeout = timeout
         
-        mp = tf.keras.callbacks.ModelCheckpoint(
-            filepath = 'mymodel.hdf5', 
-            verbose = 2, 
-            save_best_only = True
-        )
-        
-        es = tf.keras.callbacks.EarlyStopping(
-            monitor = 'val_loss', 
-            min_delta = 0.05, 
-            patience = 3
-        )
-        
-        self.callback = [es, mp]
-
     def recv(self):
         data_size_bytes = self.kivy_app.soc.recv(8)
         data_size = int.from_bytes(data_size_bytes, byteorder='big')
@@ -288,18 +237,80 @@ class RecvThread(threading.Thread):
         
         print('\n')
 
+class Update:
+
+    def __init__(self, kivy_app, ioobject):
+        self.kivy_app = kivy_app
+        self.ioobject = ioobject
+        self.model = tf.keras.models.load_model('mymodel.hdf5')
+    
+    def run(self):
+        message = {
+            "subject": 'Request for weights'
+        }
+        
+        self.ioobject.send(message)
+        received_data, status = self.ioobject.recv()
+        
+        if status == 0:
+            self.kivy_app.label.text = "Nothing Received from the Server."
+        else:
+            self.model.set_weights(received_data['weights'])
+            self.kivy_app.label.text = "Model Updated."
+
+class Detect:
+    
+    def __init__(self, kivy_app):
+        self.kivy_app = kivy_app
+        self.directory = r"client\detect"
+        self.model = tf.keras.models.load_model('mymodel.hdf5')
+    
+    def run(self):
+        filename = '1.jpg'
+        img_path = os.path.join(self.directory, filename)
+        img = image.load_img(img_path, target_size=(224, 224))
+        
+        img_array = image.img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        y_pred = self.model.predict(img_array)
+        
+        if y_pred < 0.5:
+            self.kivy_app.label.text = "Cancer Detected."
+        else:
+            self.kivy_app.label.text = "No Cancer Detected."
+
+class Train:
+
+    def __init__(self, kivy_app, ioobject):
+        self.kivy_app = kivy_app
+        self.ioobject = ioobject
+        
+        mp = tf.keras.callbacks.ModelCheckpoint(
+            filepath = 'mymodel.hdf5', 
+            verbose = 2, 
+            save_best_only = True
+        )
+        
+        es = tf.keras.callbacks.EarlyStopping(
+            monitor = 'val_loss', 
+            min_delta = 0.05, 
+            patience = 3
+        )
+        
+        self.callback = [es, mp]
+
     def run(self):
         global Architecture
         
         if not Architecture:
             Architecture = True
             message = {
-                'subject': 'Request for architecture',
-                'data': None
+                'subject': 'Request for architecture'
             }
             
-            self.send(message)
-            received_data, status = self.recv()
+            self.ioobject.send(message)
+            received_data, status = self.ioobject.recv()
             
             if status == 0:
                 self.kivy_app.label.text = "Nothing Received from the Server."
@@ -320,12 +331,11 @@ class RecvThread(threading.Thread):
                 model.save('mymodel.hdf5')
                 
         message = {
-            'subject': 'Request for weights and image generators',
-            'data': None
+            'subject': 'Request for weights and image generators'
         }        
         
-        self.send(message)
-        received_data, status = self.recv()
+        self.ioobject.send(message)
+        received_data, status = self.ioobject.recv()
 
         if status == 0:
             self.kivy_app.label.text = "Nothing Received from the Server."
@@ -375,7 +385,7 @@ class RecvThread(threading.Thread):
                 'weights': model.get_weights()
             }
             
-            self.send(message)
+            self.ioobject.send(message)
             
             
 clientApp = ClientApp()
