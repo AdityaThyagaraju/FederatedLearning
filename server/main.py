@@ -113,7 +113,7 @@ class AppInterface(threading.Thread):
         print('\n')
     
     def reqHandler(self,req):        
-        if "subject" not in req or "data" not in req:
+        if "subject" not in req:
             print("Incomplete message")
         else:
             if req['subject'] == 'Request for architecture':
@@ -146,8 +146,11 @@ class AppInterface(threading.Thread):
                 
             elif req['subject']=="Weights for update":
                 clientWeights = req['weights']
-                self.app.federatedAverage(clientWeights)             
-                
+                self.app.federatedAverage(clientWeights) 
+            
+            else:
+                print("Unrecognized subject")            
+                                
                 
     def run(self):
         while True:
