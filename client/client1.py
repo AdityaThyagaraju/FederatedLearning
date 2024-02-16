@@ -3,7 +3,6 @@ import socket
 import threading
 import tqdm
 import dill
-import cv2
 
 import tensorflow as tf
 import numpy as np
@@ -54,6 +53,7 @@ class ClientApp(kivy.app.App):
 
             self.connect_btn.disabled = True
             self.recv_train_model_btn.disabled = False
+            self.get_updated_weights_btn.disabled=False
 
         except BaseException as e:
             self.label.text = "Error Connecting to the Server"
@@ -76,6 +76,10 @@ class ClientApp(kivy.app.App):
         detectThread = DetectThread()
         detectThread.start()
         self.detect_btn.disabled = False
+
+    def get_updated_weights(self, *args):
+        updateThread = UpdateThread()
+        updateThread.start()
 
     def close_socket(self, *args):
         self.soc.close()
@@ -125,6 +129,14 @@ class ClientApp(kivy.app.App):
         else:
             self.detect_btn.disabled = True
 
+
+        self.get_updated_weights_btn = kivy.uix.button.Button(
+            text = "Get Updated Model"
+        )
+        self.get_updated_weights_btn.bind(on_press = self.get_updated_weights)
+        self.get_updated_weights_btn.disabled=True
+
+
         self.close_socket_btn = kivy.uix.button.Button(
             text = "Close Socket", 
             disabled = True
@@ -138,11 +150,25 @@ class ClientApp(kivy.app.App):
         self.box_layout.add_widget(self.server_info_boxlayout)
         self.box_layout.add_widget(self.connect_btn)
         self.box_layout.add_widget(self.recv_train_model_btn)
+        self.box_layout.add_widget(self.get_updated_weights_btn)
         self.box_layout.add_widget(self.detect_btn)
         self.box_layout.add_widget(self.close_socket_btn)
         self.box_layout.add_widget(self.label)
 
         return self.box_layout
+
+# class IOclass:
+#     def __init__(self):
+
+
+
+class UpdateThread(threading.Thread):
+
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.model=tf.keras.models.load_model('mymodel.hdf5')
+    
+
 
 
 class DetectThread(threading.Thread):
