@@ -38,12 +38,11 @@ class App:
         )
         
     def updateWeights(self,newWeights):
-        self.baseModel.set_weights(newWeights)
+        self.model.set_weights(newWeights)
     
-    def federatedAverage(self,clientModel):
+    def federatedAverage(self,client_layer_weights):
         averaged_weights = []
         server_layer_weights = self.model.get_weights()
-        client_layer_weights = clientModel.get_weights()
         averaged_weights.append(server_layer_weights)
         averaged_weights.append(client_layer_weights)
         for i in range(len(averaged_weights[0])):
@@ -127,7 +126,19 @@ class AppInterface(threading.Thread):
                 }
                 self.reply(message)
             
-            if req['subject'] == 'Request for weights and image generators':
+            elif req['subject'] == 'Request for weights and image generators':
+                train_datagen, test_datagen, target_size, batch_size = self.app.image_generators()
+                weights = self.app.get_weights()
+                message = {
+                    'train_datagen': train_datagen, 
+                    'test_datagen': test_datagen, 
+                    'target_size': target_size, 
+                    'batch_size': batch_size,
+                    'weights': weights
+                }
+                self.reply(message)
+                
+            elif req['subject'] == 'Request for weights and image generators':
                 train_datagen, test_datagen, target_size, batch_size = self.app.image_generators()
                 weights = self.app.get_weights()
                 message = {
@@ -139,6 +150,17 @@ class AppInterface(threading.Thread):
                 }
                 self.reply(message)
             
+            elif req['subject'] == 'Request for weights':
+                message = {
+                    'weights': self.app.get_weights()
+                }
+                self.reply(message)
+                
+            elif req['subject']=="Weights for update":
+                clientWeights = req['weights']
+                self.app.federatedAverage(clientWeights)             
+                
+                
     def run(self):
         while True:
             data_size_bytes = self.connection.recv(8)

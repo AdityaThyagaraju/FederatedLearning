@@ -3,7 +3,6 @@ import socket
 import threading
 import tqdm
 import dill
-import cv2
 
 import tensorflow as tf
 import numpy as np
