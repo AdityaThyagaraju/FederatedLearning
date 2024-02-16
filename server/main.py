@@ -137,19 +137,7 @@ class AppInterface(threading.Thread):
                     'weights': weights
                 }
                 self.reply(message)
-                
-            elif req['subject'] == 'Request for weights and image generators':
-                train_datagen, test_datagen, target_size, batch_size = self.app.image_generators()
-                weights = self.app.get_weights()
-                message = {
-                    'train_datagen': train_datagen, 
-                    'test_datagen': test_datagen, 
-                    'target_size': target_size, 
-                    'batch_size': batch_size,
-                    'weights': weights
-                }
-                self.reply(message)
-            
+                            
             elif req['subject'] == 'Request for weights':
                 message = {
                     'weights': self.app.get_weights()
