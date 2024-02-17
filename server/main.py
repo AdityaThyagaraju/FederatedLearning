@@ -15,27 +15,57 @@ from tensorflow.keras.preprocessing import image
 ROWS = 224
 COLS = 224
 TIMEOUT = 50
+TRAIN_SET_DIR = r'server\data'
+
+
 class App:
     def __init__(self,rows,cols):
         
-        self.base_for_model = tf.keras.applications.VGG16(weights = 'imagenet', input_shape = (224,224,3), include_top = False)
-        for layer in self.base_for_model.layers:
+        base_for_model = tf.keras.applications.VGG16(weights = 'imagenet', input_shape = (224,224,3), include_top = False)
+        for layer in base_for_model.layers:
             layer.trainable = False
-            
-        self.model = Sequential()
-        self.model.add(self.base_for_model) 
-        self.model.add(GaussianNoise(0.25))
-        self.model.add(GlobalAveragePooling2D())
-        self.model.add(Dense(512, activation = 'relu'))
-        self.model.add(BatchNormalization())
-        self.model.add(Dense(1, activation = 'sigmoid'))
+    
+        model = Sequential()
+        model.add(base_for_model) 
+        model.add(GaussianNoise(0.25))
+        model.add(GlobalAveragePooling2D())
+        model.add(Dense(512, activation = 'relu'))
+        model.add(BatchNormalization())
+        model.add(Dense(1, activation = 'sigmoid'))
         
-        self.adam = tf.keras.optimizers.Adam(learning_rate = 0.001)
-        self.model.compile(
-            optimizer = self.adam, 
+        adam = tf.keras.optimizers.Adam(learning_rate = 0.001)
+        model.compile(
+            optimizer = adam, 
             loss = 'binary_crossentropy', 
             metrics = ['accuracy','Precision','Recall','AUC']
         )
+
+        #server Training 
+        self.batch_size = 16
+        self.target_size = (224,224)
+        train_datagen = image.ImageDataGenerator(
+            rotation_range = 15,
+            shear_range = 0.2,
+            zoom_range = 0.2,
+            horizontal_flip = True,
+            width_shift_range = 0.1,
+            height_shift_range = 0.1
+        )
+        train_generator = train_datagen.flow_from_directory(
+                                TRAIN_SET_DIR,
+                                target_size = self.target_size,
+                                batch_size = self.batch_size,
+                                class_mode = 'binary'
+                            )
+        
+        model.fit(
+                train_generator,
+                steps_per_epoch = 15,
+                epochs = 1,
+            )
+        
+        self.model = model
+
         
     def updateWeights(self,newWeights):
         self.model.set_weights(newWeights)
@@ -78,10 +108,9 @@ class App:
             height_shift_range = 0.1
         )
         
-        target_size = (224, 224)
-        batch_size = 16
+    
         
-        return train_datagen, test_datagen, target_size, batch_size
+        return train_datagen, test_datagen, self.target_size, self.batch_size
     
     def model_architecture(self):        
         optimizer = self.adam
