@@ -194,19 +194,19 @@ class IOthread(threading.Thread):
     def __init__(self,app):
         threading.Thread.__init__(self)
         self.app = app
-        self.soc = socket.socket(family = socket.AF_INET, type = socket.SOCK_STREAM)
     def run(self):
-        self.soc.bind(("localhost",10000))
-        self.soc.listen()
         print("Server started at PORT:10000")
         while True:
             try:
-                connection, client_info = self.soc.accept()
+                soc = socket.socket(family = socket.AF_INET, type = socket.SOCK_STREAM)
+                soc.bind(("localhost",10000))
+                soc.listen()
+                connection, client_info = soc.accept()
                 socket_thread = AppInterface(connection = connection, app = self.app, bufferSize = 1024, timeOut = 10)
                 socket_thread.start()
                 print("Client {client_info} is successfully connected.\n".format(client_info = client_info))
             except BaseException as e:
-                self.soc.close()
+                soc.close()
                 print(e)
                 break
 
