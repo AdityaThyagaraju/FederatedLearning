@@ -2,7 +2,6 @@ import socket
 import threading
 import dill
 import tqdm
-import random
 
 import tensorflow as tf
 
@@ -11,12 +10,8 @@ from tensorflow.keras.models import *
 from tensorflow.keras.applications import *
 from tensorflow.keras.preprocessing import image
 
-
-ROWS = 224
-COLS = 224
-TIMEOUT = 50
 class App:
-    def __init__(self,rows,cols):
+    def __init__(self):
         
         self.base_for_model = tf.keras.applications.VGG16(weights = 'imagenet', input_shape = (224,224,3), include_top = False)
         for layer in self.base_for_model.layers:
@@ -153,9 +148,6 @@ class AppInterface(threading.Thread):
             elif req['subject']=="Weights for update":
                 clientWeights = req['weights']
                 
-                with open('server' + str(int(random.random()*100)) + '.txt', 'w') as f:
-                    f.write(str(self.app.get_weights()))
-                
                 self.app.federatedAverage(clientWeights) 
                 message = {
                     'subject': 'Aggregated weights',
@@ -218,7 +210,7 @@ class IOthread(threading.Thread):
                 print(e)
                 break
 
-app = App(ROWS,COLS)
+app = App()
 iothread = IOthread(app)
 iothread.start()
     
