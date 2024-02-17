@@ -91,12 +91,13 @@ class App:
         return self.model, optimizer, loss, metrics
     
 class AppInterface(threading.Thread):
-    def __init__(self,connection,bufferSize,timeOut,app):
+    def __init__(self,connection,bufferSize,timeOut,app,broadCastFunc=None):
         threading.Thread.__init__(self)
         self.connection = connection
         self.bufferSize = bufferSize
         self.timeOut = timeOut
         self.app = app
+        self.broadCastFunc = broadCastFunc
     
     def reply(self, message):
         data_pickle = dill.dumps(message)
@@ -118,7 +119,9 @@ class AppInterface(threading.Thread):
             print("Error Connecting to the client: {msg}".format(msg=e))
         print('\n')
     
-    def reqHandler(self,req):        
+    def reqHandler(self,req):      
+        lock = threading.Lock()
+        lock.acquire(blocking=True)  
         if "subject" not in req:
             print("Incomplete message")
         else:
@@ -153,10 +156,14 @@ class AppInterface(threading.Thread):
             elif req['subject']=="Weights for update":
                 clientWeights = req['weights']
                 self.app.federatedAverage(clientWeights) 
-            
+                if self.broadCastFunc is not None:
+                    message = {
+                    'weights': self.app.get_weights()
+                    }
+                    self.broadCastFunc(message)
             else:
                 print("Unrecognized subject")            
-                                
+        lock.release()         
                 
     def run(self):
         while True:
@@ -189,11 +196,26 @@ class AppInterface(threading.Thread):
             print('\n')
 
             self.reqHandler(received_data)
+            
+class Sock:
+    def __init__(self,app):
+        self.channelList = []
+        self.app = app
+        
+    def getSocketThread(self,connection):
+        socket_thread = AppInterface(connection = connection, app = self.app, bufferSize = 1024, timeOut = 10, broadCastFunc=self.broadcast)
+        self.channelList.append(socket_thread)
+        return socket_thread
+    
+    def broadcast(self,message):
+        for channel in self.channelList:
+            channel.reply(message)
 
 class IOthread(threading.Thread):
     def __init__(self,app):
         threading.Thread.__init__(self)
         self.app = app
+        self.sockObj = Sock(app)
     def run(self):
         print("Server started at PORT:10000")
         while True:
@@ -202,7 +224,7 @@ class IOthread(threading.Thread):
                 soc.bind(("localhost",10000))
                 soc.listen()
                 connection, client_info = soc.accept()
-                socket_thread = AppInterface(connection = connection, app = self.app, bufferSize = 1024, timeOut = 10)
+                socket_thread = self.sockObj.getSocketThread(connection=connection)
                 socket_thread.start()
                 print("Client {client_info} is successfully connected.\n".format(client_info = client_info))
             except BaseException as e:
