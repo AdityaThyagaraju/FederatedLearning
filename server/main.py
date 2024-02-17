@@ -2,7 +2,7 @@ import socket
 import threading
 import dill
 import tqdm
-
+import os
 import numpy as np
 import tensorflow as tf
 
@@ -21,50 +21,55 @@ TRAIN_SET_DIR = r'server\data'
 class App:
     def __init__(self,rows,cols):
         
-        base_for_model = tf.keras.applications.VGG16(weights = 'imagenet', input_shape = (224,224,3), include_top = False)
-        for layer in base_for_model.layers:
+        self.base_for_model = tf.keras.applications.VGG16(weights = 'imagenet', input_shape = (224,224,3), include_top = False)
+        for layer in self.base_for_model.layers:
             layer.trainable = False
     
-        model = Sequential()
-        model.add(base_for_model) 
-        model.add(GaussianNoise(0.25))
-        model.add(GlobalAveragePooling2D())
-        model.add(Dense(512, activation = 'relu'))
-        model.add(BatchNormalization())
-        model.add(Dense(1, activation = 'sigmoid'))
-        
-        adam = tf.keras.optimizers.Adam(learning_rate = 0.001)
-        model.compile(
-            optimizer = adam, 
-            loss = 'binary_crossentropy', 
-            metrics = ['accuracy','Precision','Recall','AUC']
-        )
-
-        #server Training 
-        self.batch_size = 16
-        self.target_size = (224,224)
-        train_datagen = image.ImageDataGenerator(
-            rotation_range = 15,
-            shear_range = 0.2,
-            zoom_range = 0.2,
-            horizontal_flip = True,
-            width_shift_range = 0.1,
-            height_shift_range = 0.1
-        )
-        train_generator = train_datagen.flow_from_directory(
-                                TRAIN_SET_DIR,
-                                target_size = self.target_size,
-                                batch_size = self.batch_size,
-                                class_mode = 'binary'
-                            )
-        
-        model.fit(
-                train_generator,
-                steps_per_epoch = 15,
-                epochs = 1,
+        model = None
+        if not os.path.exists('server\\vgg16.keras'):
+            model = Sequential()
+            model.add(self.base_for_model) 
+            model.add(GaussianNoise(0.25))
+            model.add(GlobalAveragePooling2D())
+            model.add(Dense(512, activation = 'relu'))
+            model.add(BatchNormalization())
+            model.add(Dense(1, activation = 'sigmoid'))
+            
+            self.adam = tf.keras.optimizers.Adam(learning_rate = 0.001)
+            model.compile(
+                optimizer = self.adam, 
+                loss = 'binary_crossentropy', 
+                metrics = ['accuracy','Precision','Recall','AUC']
             )
-        
-        self.model = model
+
+            #server Training 
+            self.batch_size = 16
+            self.target_size = (224,224)
+            train_datagen = image.ImageDataGenerator(
+                rotation_range = 15,
+                shear_range = 0.2,
+                zoom_range = 0.2,
+                horizontal_flip = True,
+                width_shift_range = 0.1,
+                height_shift_range = 0.1
+            )
+            train_generator = train_datagen.flow_from_directory(
+                                    TRAIN_SET_DIR,
+                                    target_size = self.target_size,
+                                    batch_size = self.batch_size,
+                                    class_mode = 'binary'
+                                )
+            
+            model.fit(
+                    train_generator,
+                    steps_per_epoch = 15,
+                    epochs = 1,
+                )
+            model.save('server\\vgg16.keras')
+        else:
+            model = tf.keras.models.load_model('server\\vgg16.keras')
+            
+        self.model=model
 
         
     def updateWeights(self,newWeights):
