@@ -2,8 +2,8 @@ import socket
 import threading
 import dill
 import tqdm
+import random
 
-import numpy as np
 import tensorflow as tf
 
 from tensorflow.keras.layers import *
@@ -152,8 +152,16 @@ class AppInterface(threading.Thread):
                 
             elif req['subject']=="Weights for update":
                 clientWeights = req['weights']
+                
+                with open('server' + str(int(random.random()*100)) + '.txt', 'w') as f:
+                    f.write(str(self.app.get_weights()))
+                
                 self.app.federatedAverage(clientWeights) 
-            
+                message = {
+                    'subject': 'Aggregated weights',
+                    'weights': self.app.get_weights()
+                }
+                self.reply(message)
             else:
                 print("Unrecognized subject")            
                                 
